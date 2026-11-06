@@ -1,0 +1,22 @@
+{
+
+newcanvas("new");
+
+TGraph *g1 = new TGraph("effFieldOpticalAxis.dat");
+g1->Draw("AL");
+g1->SetTitle(" ");
+g1->GetYaxis()->SetTitle("Magnetic Field (T)");
+g1->GetYaxis()->SetLabelSize(0.0);
+g1->GetXaxis()->SetLabelSize(0.0);
+
+TLine *l1 = new TLine(-98.,0,-98.,0.9663);
+l1->SetLineStyle(2);
+l1->Draw();
+
+TLine *l2 = new TLine(-337.5,0,-337.5,0.9663);
+l2->Draw();
+
+TLine *l3 = new TLine(-337.5,0.9663,-98,0.9663);
+l3->Draw();
+
+}

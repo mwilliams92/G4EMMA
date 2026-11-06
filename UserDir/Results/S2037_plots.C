@@ -1,0 +1,89 @@
+{
+
+	//TFile *file=TFile::Open("Sr94an_2umAuDeg_Eb245MeV.root");
+	TFile *file=TFile::Open("Kr86an_246MeV.root");
+
+	TTree *t1 = (TTree*) file->Get("targetplane");
+	TTree *fp = (TTree*) file->Get("fphits");
+
+	t1->SetAlias("xAng","post_target_x_angle*180./TMath::Pi()");
+	t1->SetAlias("yAng","post_target_y_angle*180./TMath::Pi()");
+
+	t1->SetAlias("xAng2","post_degrader_x_angle*180./TMath::Pi()");
+	t1->SetAlias("yAng2","post_degrader_y_angle*180./TMath::Pi()");
+
+	fp->SetAlias("sum","fp_Edep+fp_Edep2+fp_EdepSilicon");
+	fp->SetAlias("ICsum","fp_Edep+fp_Edep2");
+
+	TCanvas *c1 = new TCanvas("c1");
+	TH1D *h_ene = new TH1D("h_ene","^{86}Kr(#alpha,n)^{89}Sr (Eb=246 MeV)",280,0,280);
+	t1->Draw("post_target_Ekint>>h_ene");
+	h_ene->GetXaxis()->SetTitle("Energy (MeV)");
+	h_ene->GetYaxis()->SetTitle("Counts (1 MeV/bin)");
+	h_ene->GetYaxis()->SetTitleOffset(1.5);
+
+	TH1D *h_ene2 = new TH1D("h_ene2","post degrader energy",250,0,250);
+	t1->Draw("post_degrader_Ekint>>h_ene2","","same");
+	h_ene2->SetLineColor(2);
+
+	TLegend *leg0 = new TLegend(0.6,0.7,0.9,0.9);
+	leg0->SetHeader("Legend"); // option "C" allows to center the header
+   	leg0->AddEntry(h_ene,"Post Target","l");
+   	leg0->AddEntry(h_ene2,"Post 8#mum Al Degrader","l");
+   	leg0->Draw();
+
+	TCanvas *c2 = new TCanvas("c2");
+	TH2D *h_ang = new TH2D("h_ang","^{89}Sr Recoil Post Target Angles (Eb=246 MeV)",100,-5,5,100,-5,5);
+	t1->Draw("yAng:xAng>>h_ang","post_target_Ekint>195 && post_target_Ekint<216","colz");
+	h_ang->GetXaxis()->SetTitle("X Angle (deg)");
+	h_ang->GetYaxis()->SetTitle("Y Angle (deg)");
+
+	TCanvas *c3 = new TCanvas("c3");
+	TH2D *h_ang2 = new TH2D("h_ang2","^{89}Sr Recoil Post 8#mum Al Degrader Angles (Eb=245 MeV)",200,-10,10,200,-10,10);
+	t1->Draw("yAng2:xAng2>>h_ang2","post_degrader_Ekint>90 && post_degrader_Ekint<120","colz");
+	h_ang2->GetXaxis()->SetTitle("X Angle (deg)");
+	h_ang2->GetYaxis()->SetTitle("Y Angle (deg)");
+
+	TCanvas *c4 = new TCanvas("c4");
+	TH1D *h_ene3 = new TH1D("h_ene3","post degrader energy",250,0,250);
+	t1->Draw("post_degrader_Ekint>>h_ene3","xAng2>-3 && xAng2<3 && yAng2>-3 && yAng2<3 && post_degrader_Ekint>90 && post_degrader_Ekint<120");
+	h_ene3->GetXaxis()->SetTitle("Energy (MeV)");
+	h_ene3->GetYaxis()->SetTitle("Counts (1 MeV/bin)");
+	h_ene3->GetYaxis()->SetTitleOffset(1.5);
+
+
+/*
+	TCanvas *c4 = new TCanvas("c4");
+	TH2D *h_pid = new TH2D("h_pid","Particle ID",1000,0,100,1000,0,100);
+	fp->Draw("ICsum:sum>>h_pid","","colz");
+	h_pid->GetXaxis()->SetTitle("ICsum + Silicon (MeV)");
+	h_pid->GetYaxis()->SetTitle("ICsum");
+*/
+	TCanvas *c5 = new TCanvas("c5");
+	TH2D *h_pos = new TH2D("h_pos","^{94}Sr(#alpha,n)^{97}Zr, E_{b} = 245 MeV, 8#mum Al Degrader, E=105 MeV, q=21^{+}",1600,-80,80,600,-30,30);
+	fp->Draw("fp_pos[1]:fp_pos[0]>>h_pos","","colz");
+	h_pos->GetXaxis()->SetTitle("Focal Plane X-Pos (mm)");
+	h_pos->GetYaxis()->SetTitle("Focal Plane X-Pos (mm)");
+/*
+	TCanvas *c6 = new TCanvas("c6");
+	TH1D *h_posX = new TH1D("h_posX","^{94}Sr(#alpha,n)^{97}Zr, E_{b} = 245 MeV, 4#mum Au Degrader, E=77.3 MeV, q=19^{+}",160,-80,80);
+	fp->Draw("fp_pos[0]>>h_posX");
+	h_posX->GetXaxis()->SetTitle("Focal Plane X-Pos (mm)");
+	h_posX->GetYaxis()->SetTitle("Counts (1 mm/bin)");
+	TH1D *h_posX2 = new TH1D("h_posX2","X Pos",160,-80,80);
+	fp->Draw("fp_pos[0]>>h_posX2","fp_EdepSilicon>6.","same");
+	h_posX2->SetLineColor(2);
+
+	TLegend *leg1 = new TLegend(0.6,0.7,0.9,0.9);
+	leg1->SetHeader("Legend"); // option "C" allows to center the header
+   	leg1->AddEntry(h_posX,"All FP Hits","l");
+   	leg1->AddEntry(h_posX2,"^{94}Sr Beam","l");
+   	leg1->Draw();
+
+	TCanvas *c7 = new TCanvas("c7");
+	TH1D *h_silicon = new TH1D("h_silicon","^{94}Sr(#alpha,n)^{97}Zr 4#mum Degrader",20,0,20);
+	fp->Draw("fp_EdepSilicon>>h_silicon","fp_EdepSilicon!=0","colz");
+	h_silicon->GetXaxis()->SetTitle("Silicon Energy (MeV)");
+	h_silicon->GetYaxis()->SetTitle("Counts (200 keV/bin)");
+*/
+}

@@ -1,0 +1,20 @@
+# TARGET
+IN                 # IN/OUT
+3.60               # thickness (um)
+0                  # target z position offset (cm)
+1.6               # density (g/cm3)
+2                  # number of elements
+14 28.055 0.913    # element 1: Z, M (g/mol), mass fraction
+2  4.0026 0.087    # element 2: Z, M (g/mol), mass fraction
+# DEGRADER 1
+IN                # IN/OUT
+8.0              # thickness (um)
+2.7              # density (g/cm3)
+1                 # number of elements
+13 26.98 1    # element 1: Z, M (g/mol), weight ratio
+# DEGRADER 2
+OUT                # IN/OUT
+2.6                # thickness (um)
+19.30              # density (g/cm3)
+1                  # number of elements
+79 196.96655 1     # element 1: Z, M (g/mol), weight ratio

@@ -1,0 +1,8 @@
+/home/mwilliams/packages/G4EMMA/CMakeFiles/EMMAapp.dir
+/home/mwilliams/packages/G4EMMA/CMakeFiles/EMMA.dir
+/home/mwilliams/packages/G4EMMA/CMakeFiles/edit_cache.dir
+/home/mwilliams/packages/G4EMMA/CMakeFiles/rebuild_cache.dir
+/home/mwilliams/packages/G4EMMA/CMakeFiles/list_install_components.dir
+/home/mwilliams/packages/G4EMMA/CMakeFiles/install.dir
+/home/mwilliams/packages/G4EMMA/CMakeFiles/install/local.dir
+/home/mwilliams/packages/G4EMMA/CMakeFiles/install/strip.dir

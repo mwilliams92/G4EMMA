@@ -1,0 +1,35 @@
+# Macro for EMMA GEANT4 simulation
+
+# Prepare beam
+#---------------------------------------------------------------
+/mydet/beamZ 37
+/mydet/beamA 83
+/mydet/beamCharge 24
+/mydet/energy 96 MeV
+/mydet/sigmaEnergy 0.1           # beam-energy resolution (sigma) in percent of beam energy
+#/mydet/Angle 0.036 deg   	  # beam angle sampled uniformly between 0 and theta=sigmaAngle
+/mydet/beamSpotDiameter 2.0 mm
+#/mydet/transEmittance 2.0 mm
+#---------------------------------------------------------------
+
+# Specify central trajectory
+#----------------------------
+/mydet/centralZ 38
+/mydet/centralA 84
+/mydet/centralQ 23
+/mydet/centralE 93.24
+/mydet/updategeo           # necessary for changes to take effect
+#----------------------------
+
+# Amount of output info
+#-----------------------
+/run/verbose      0
+/event/verbose    0
+/tracking/verbose 0
+#-----------------------
+
+# Run simulation
+#-----------------------
+/mydet/nEvents 10     
+/mydet/doBeam
+#-----------------------

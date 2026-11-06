@@ -1,0 +1,916 @@
+// *********************************************** //
+//      Modified by N. Galinski (July 2014):
+// BGField classes objects need dimensions as input parameters.
+// Extra slits added for EDs and MD
+// *********************************************** //
+// Added Pipe 1 end caps and detector end caps to minimize scattering out of the spectrometer on pipe 1 and pipes 11 & 12
+//  - Alex Wen (July/August 2017)
+// *********************************************** //
+//
+//
+
+/*! \file
+ \brief
+  This source file builds the elements in the whole EMMA spectrometer apart from the detectors and fields.
+  All the pipes, walls, and other geometries are built here. Refer to this file if any structural changes are required for the simulation.
+  */
+
+#include "SpectrometerConstructionV2.hh"
+
+#include "G4VSolid.hh"
+#include "G4Box.hh"
+#include "G4Tubs.hh"
+#include "G4LogicalVolume.hh"
+#include "G4VPhysicalVolume.hh"
+#include "G4PVPlacement.hh"
+#include "G4ProductionCutsTable.hh"
+
+#include "EMMAGlobalField.hh"
+#include "EMFieldDebugger.hh"
+
+#include "G4VisAttributes.hh"
+#include "G4Colour.hh"
+
+#include "G4Region.hh"
+#include "G4UnionSolid.hh"
+#include "G4SubtractionSolid.hh"
+#include "G4RegionStore.hh"
+
+#include "G4UserLimits.hh"
+
+#include "G4Material.hh"
+#include "G4MaterialTable.hh"
+#include "G4Element.hh"
+#include "G4UnitsTable.hh"
+#include "G4SystemOfUnits.hh"
+
+#include "G4Transform3D.hh"
+
+
+#include <fstream> //Stream class to both read and write from/to files
+using namespace std;
+#include <stdlib.h>     /* abort, NULL */
+
+#include "BGField1.hh"
+#include "BGField2.hh"
+#include "BGField3.hh"
+#include "BGField4.hh"
+#include "BGField5.hh"
+#include "BGField6.hh"
+#include "BGField7.hh"
+
+// Global variables
+
+// Effective Field Lengths
+G4double Q1effFL;
+G4double Q2effFL;
+G4double Q3effFL;
+G4double Q4effFL;
+
+// Drift Lengths
+G4double TargetQ1drift;		// Target to Q1 eff field boundary (24 cm)
+G4double Q1Q2drift;		// Distance between Q1 and Q2 effective field boundaries
+G4double Q2ED1drift;		// Distance between Q2 and ED1 effective field boundaries
+G4double EDMDdrift;		// Distance between ED and MD effective field boundaries (symmetric for both EDs)
+G4double ED2Q3drift;		// Distance between ED2 and Q3 effective field boundaries
+G4double Q3Q4drift;		// Distance between Q3 and Q4 effective field boundaries
+G4double Q4FPdrift;	// Distance between Q4 and the focal plane
+
+// Element Locations
+G4double zQ1;
+G4double zQ1_EFBstart;
+G4double zQ1_EFBend;
+
+G4double zQ2;
+G4double zQ2_EFBstart;
+G4double zQ2_EFBend;
+
+G4double zED1_EFBstart; // 109.288 cm
+G4double zED1_EFBend;
+G4double xED1_EFBend;
+
+G4double zMD_EFBstart;
+G4double zMD_EFBend;
+
+G4double zFocalPane;
+
+G4double EDrad;
+
+G4double rEDV2;
+G4double zED1centerV2;
+G4double xED1centerV2;
+G4double zED1fieldendsV2;
+
+G4double ED1cathodeRad;
+G4double ED1anodeRad;
+G4double ED2cathodeRad;
+G4double ED2anodeRad;
+
+G4double ED1deltaX_cathode;
+G4double ED1deltaZ_cathode;
+
+G4double ED1deltaX_anode;
+G4double ED1deltaZ_anode;
+
+
+G4String fieldFileName; //used in EMFieldDebugger.cc
+extern G4String UserDir; // EMMAapp.cc
+
+SpectrometerConstructionV2::SpectrometerConstructionV2(){;}
+
+//************************************************************************************//
+//If you change any logical names in the constructor of this class make sure you change
+//them in EMMASteppingAction.cc
+//************************************************************************************//
+
+SpectrometerConstructionV2::SpectrometerConstructionV2(G4Material* Vacuum, G4Material* Wall, G4LogicalVolume* SpecWorldLogical,
+						   G4double Pipe1length)
+:fCheckOverlaps(true)
+{
+// Check Overlaps
+	//fCheckOverlaps=false;	// Set true if you want to check for overlaps
+
+// read user input for Slits
+	ReadUserInput();
+
+// Create a region for the IonGasModel
+  	G4RegionStore::GetInstance()->FindOrCreateRegion("vacuumRegion");
+  	G4Region* vacuumRegion = G4RegionStore::GetInstance()->GetRegion("vacuumRegion",false);
+  	vacuumRegion->SetProductionCuts(
+      	G4ProductionCutsTable::GetProductionCutsTable()->GetDefaultProductionCuts());
+
+//User Limits
+  	G4double minStep = 0.0001 * mm; //Integrator minstep
+
+// Visualization attributes
+  	WallVisAtt = new G4VisAttributes(G4Colour(0.0,0.0,0.0)); // black
+	WallVisAtt->SetForceWireframe(true);
+  	WallVisAtt->SetVisibility(true);
+  	BeamLineVisAtt = new G4VisAttributes(G4Colour(1.0,0.0,1.0)); //pink
+  	BeamLineVisAtt->SetVisibility(true);
+  	PoleVisAtt = new G4VisAttributes(G4Colour(1.0,0.0,0.0)); //red
+  	PoleVisAtt->SetVisibility(true);
+  	BendingVisAtt = new G4VisAttributes(G4Color(1.0,0.0,0.0)); //red
+  	BendingVisAtt->SetVisibility(true);
+	MDVisAtt = new G4VisAttributes(G4Color(0.0,0.0,1.0)); // blue
+  	MDVisAtt->SetVisibility(true);
+	EDVisAtt = new G4VisAttributes(G4Color(1.0,1.0,0.0)); // yellow
+  	EDVisAtt->SetVisibility(true);
+  	SlitsVisAtt = new G4VisAttributes(G4Colour(1.0,1.0,0.0)); //yellow
+	SlitsVisAtt->SetVisibility(true);
+
+// Create rotation matrices
+	G4RotationMatrix* Rotate0 = new G4RotationMatrix();
+  	Rotate0->rotateY(0*deg);
+
+  	G4RotationMatrix* RotateTube2 = new G4RotationMatrix();
+  	RotateTube2->rotateX(90*deg);
+	G4RotationMatrix* Rotate1 = new G4RotationMatrix();
+	Rotate1->rotateY(20*deg);
+	G4RotationMatrix* Rotate2 = new G4RotationMatrix();
+	Rotate2->rotateY(-20*deg);
+
+	G4RotationMatrix* RotateED1 = new G4RotationMatrix();
+	RotateED1->rotateX(-90*deg);
+	G4RotationMatrix* RotateED2 = new G4RotationMatrix();
+	RotateED2->rotateX(-90*deg);
+	RotateED2->rotateY(-20*deg);
+
+	//RotateED1->rotateZ(180*deg);
+	G4RotationMatrix* RotateMD = new G4RotationMatrix();
+	RotateMD->rotateX(90*deg);
+	RotateMD->rotateZ(180*deg);
+
+	G4RotationMatrix* RotateTest = new G4RotationMatrix();
+	RotateTest->rotateX(90*deg);
+
+	G4RotationMatrix* RotateTest2 = new G4RotationMatrix();
+	RotateTest2->rotateX(90*deg);
+	RotateTest2->rotateZ(-20*deg);
+
+
+//////////////////////////////////////////////////////////////////////////////////////////
+// 				Element Dimensions					//
+//////////////////////////////////////////////////////////////////////////////////////////
+
+// Effective Field Lengths:
+	Q1effFL = 13.977*cm;
+	Q2effFL = 29.881*cm;
+	Q3effFL = 29.882*cm;
+	Q4effFL = 40.179*cm;
+
+	// Note: The EDs and MDs ofcourse also have effective field lengths, but these run along the optic axis and so are not useful for placing elements using cartesean co-ordinates.
+
+// Drift Lengths:
+	TargetQ1drift = Pipe1length;	// Target to Q1 eff field boundary (24.7 cm)
+	Q1Q2drift = 3.5*cm;		// Distance between Q1 and Q2 effective field boundaries
+	Q2ED1drift = 37.23*cm;		// Distance between Q2 and ED1 effective field boundaries
+	EDMDdrift = 122.50*cm;		// Distance between ED and MD effective field boundaries (symmetric for both EDs)
+	ED2Q3drift = 36.49*cm;		// Distance between ED2 and Q3 effective field boundaries
+	Q3Q4drift = 3.*cm;		// Distance between Q3 and Q4 effective field boundaries
+	Q4FPdrift = 30.758*cm;
+
+// Element Geometries:
+	G4double Q1rad = 31*mm;	// radius of Q1 pipe
+	G4double Q2rad = 67.5*mm;	// radius of Q2 pipe
+	G4double EDgap = 125*mm;	// Gap between electrostatic deflectors
+	EDrad = 5000.*mm;	// ED radius of curvature
+	G4double EDheight = 200.*mm;	// height of ED plates
+	G4double EDang = 20*deg; 	// ED bending angle
+	G4double MDgap = 92*mm;		// Verical Gap in MD vaccum chamber
+	G4double MDwidth = 400.*mm;	// Horizontal opening of MD vaccum chamber
+	G4double MDrad = 1000.*mm;	// MD radius of curvature
+	G4double MDang = 40*deg; 	// ED bending angle
+	G4double Q3rad = 67.5*mm;	// radius of Q3 beam pipe
+	G4double Q4rad = 92.5*mm;	// radius of Q4 beam pipe
+
+	//ED1cathodeRad = 4953.3*mm;	// 15.8 mm more than design
+	//ED1anodeRad = 5007.3*mm;	// 55.2 mm less than design
+	//ED2cathodeRad = 4952.0*mm;
+	//ED2anodeRad = 4977.1*mm;
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// 		Element and Effective Field Boundary Locations:				//
+///////////////////////////////////////////////////////////////////////////////////////////
+
+
+	// Q1:
+	zQ1_EFBstart = TargetQ1drift; // 24.7 cm
+	zQ1 = zQ1_EFBstart + Q1effFL/2; // 31.6885 cm
+	zQ1_EFBend = zQ1_EFBstart + Q1effFL; // 38.677 cm;
+
+	// Q2:
+	zQ2_EFBstart = zQ1_EFBend + Q1Q2drift;
+	zQ2 = zQ2_EFBstart + Q2effFL/2; // 31.6885 cm
+	zQ2_EFBend = zQ2_EFBstart + Q2effFL; 
+
+	// ED1:
+
+	zED1_EFBstart = zQ2_EFBend + Q2ED1drift; // 1092.88 mm
+	zED1_EFBend = zED1_EFBstart + EDrad*sin(EDang);
+	xED1_EFBend = -EDrad + EDrad*cos(EDang);
+
+	// MD:
+	zMD_EFBstart = zED1_EFBend + EDMDdrift*cos(EDang);
+	G4double xMD_EFBstart = xED1_EFBend - EDMDdrift*sin(EDang);
+	G4double zMD = 429.612*cm;	// center of MD curvature z-location
+	G4double xMD = xMD_EFBstart - (MDrad - MDrad*cos(EDang)) + MDrad;	// center of MD curvature x-location
+	zMD_EFBend = zMD_EFBstart + 2*MDrad*sin(EDang);
+
+	// ED2:
+
+	G4double zED2_EFBend = 7499.28*mm;
+	G4double zED2_EFBstart = zED2_EFBend - EDrad*sin(EDang);
+
+	// Q3:
+	G4double zQ3_EFBstart = 7864.18*mm; // 24.7 cm
+	G4double zQ3 = zQ3_EFBstart + Q3effFL/2; // 31.6885 cm
+	G4double zQ3_EFBend = zQ3_EFBstart + Q3effFL; // 38.677 cm;
+
+	// Q4:
+	G4double zQ4_EFBstart = zQ3_EFBend + Q3Q4drift;
+
+	G4double zQ4 = zQ4_EFBstart + Q4effFL/2; // 31.6885 cm
+	G4double zQ4_EFBend = zQ4_EFBstart + Q4effFL; 
+
+	zFocalPlane = zQ4_EFBend + Q4FPdrift;
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+//					ED1 As-built					 //
+///////////////////////////////////////////////////////////////////////////////////////////
+/*
+	G4double ED1gap = ED1anodeRad - ED1cathodeRad; // 54 mm
+
+	G4double AsBuilt_Concentric_rED1 = ED1cathodeRad + ED1gap/2; // 4980.3
+	G4double ED1_diff_curve = EDrad - AsBuilt_Concentric_rED1; // 19.7 mm
+
+	G4double DeltaED1x = ED1_diff_curve*cos(EDang/2); // 19.40 mm
+	G4double DeltaED1z = ED1_diff_curve*sin(EDang/2); // 3.42 mm
+
+	G4double deltaED1x = ((EDgap - ED1gap)/2)*cos(EDang/2); // 34.96 mm
+	G4double deltaED1z = ((EDgap - ED1gap)/2)*sin(EDang/2); // 6.16
+
+	G4double xED1cathode = EDrad - DeltaED1x + deltaED1x; // 5015.56 mm 
+	G4double zED1cathode = zED1_EFBstart + DeltaED1z - deltaED1z; // zED1_EFBstart - 2.74 mm
+
+	G4double xED1anode = EDrad - DeltaED1x - deltaED1x; // 4945.64 mm 
+	G4double zED1anode = zED1_EFBstart + DeltaED1z + deltaED1z; // zED1_EFBstart + 9.58
+
+	G4cout << "X ED1anode = " << xED1anode << endl;
+	G4cout << "Z ED1anode = " << zED1anode << endl;
+
+	G4cout << "X ED1cathode = " << xED1cathode << endl;
+	G4cout << "Z ED1cathode = " << zED1cathode << endl;
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+//					ED2 As-built					 //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+	G4double ED2gap = ED2anodeRad - ED2cathodeRad; // 25.1 mm
+
+	G4double AsBuilt_Concentric_rED2 = ED2cathodeRad + ED2gap/2; // 4964.55 mm
+	G4double ED2_diff_curve = EDrad - AsBuilt_Concentric_rED2; // 35.45 mm
+
+	G4double DeltaED2x = ED2_diff_curve*cos(EDang/2); // 34.91 mm
+	G4double DeltaED2z = ED2_diff_curve*sin(EDang/2); // 6.16 mm
+
+	G4double deltaED2x = ((EDgap - ED2gap)/2)*cos(EDang/2); // 49.19 mm
+	G4double deltaED2z = ((EDgap - ED2gap)/2)*sin(EDang/2); // 8.67 mm
+
+	G4double xED2cathode = EDrad - DeltaED2x + deltaED2x; // 5014.28 mm 
+	G4double zED2cathode = zED2_EFBend - DeltaED1z + deltaED1z; // zED1_EFBstart + 2.51 mm
+
+	G4double xED2anode = EDrad - DeltaED2x - deltaED2x; // 4915.9 mm 
+	G4double zED2anode = zED2_EFBend - DeltaED2z - deltaED2z; // zED2_EFBend - 14.83 mm
+
+	G4cout << "X ED2anode = " << xED2anode << endl;
+	G4cout << "Z ED2anode = " << zED2anode << endl;
+
+	G4cout << "X ED2cathode = " << xED2cathode << endl;
+	G4cout << "Z ED2cathode = " << zED2cathode << endl;
+*/
+
+
+	rEDV2 = 5000*mm;
+	zED1centerV2 = 1092.88*mm;
+	xED1centerV2 = -5000*mm;
+	zED1fieldendsV2 = 3374.78*mm;
+
+	G4double deltaED1anode = 0.*mm;	//25*mm; // bring the ED1 anode in by an arbitrary amount.
+	G4double deltaED2cathode = 0*mm; // bring the ED2 cathode in by an arbitrary amount.
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+//				Element Placement					 //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+// Q1 Solid, Logical and Placement
+
+  	G4VSolid* Q1Solid = new G4Tubs("Q1Tub",0*cm,Q1rad,Q1effFL/2,0*deg,360*deg);
+  	G4LogicalVolume* Q1Logical = new G4LogicalVolume(Q1Solid,Vacuum,"Q1Logical");
+  	new G4PVPlacement(Rotate0,G4ThreeVector(0*cm,0*cm,zQ1),Q1Logical,"Q1Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+  	Q1Logical->SetVisAttributes(BendingVisAtt);
+
+// Q2 Solid, Logical and Placement
+  
+  	G4VSolid* Q2Solid = new G4Tubs("Q2Tub",0*cm,Q2rad,Q2effFL/2,0*deg,360*deg);
+  	G4LogicalVolume* Q2Logical = new G4LogicalVolume(Q2Solid,Vacuum,"Q2Logical");
+  	new G4PVPlacement(Rotate0,G4ThreeVector(0*cm,0*cm,zQ2),Q2Logical,"Q2Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+  	Q2Logical->SetVisAttributes(BendingVisAtt);
+
+// ED1 Solid, Logical and Placement
+  
+	//G4VSolid* ED1Solid = new G4Tubs("ED1Tub",EDrad-EDgap/2,EDrad+EDgap/2,EDheight/2,0*deg,20*deg);
+	//G4LogicalVolume* ED1Logical = new G4LogicalVolume(ED1Solid,Vacuum,"ED1Logical");
+	//new G4PVPlacement(RotateED1,G4ThreeVector(-EDrad,0*cm,zED1_EFBstart),ED1Logical,"ED1Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+  	//ED1Logical->SetVisAttributes(EDVisAtt);
+
+// MD Solid, Logical and Placement
+  
+	G4VSolid* MDSolid = new G4Tubs("MDTub",MDrad-MDwidth/2,MDrad+MDwidth/2,MDgap/2,340*deg,40*deg);
+	G4LogicalVolume* MDLogical = new G4LogicalVolume(MDSolid,Vacuum,"MDLogical");
+	new G4PVPlacement(RotateMD,G4ThreeVector(xMD,0*cm,zMD),MDLogical,"MDPhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+  	MDLogical->SetVisAttributes(MDVisAtt);
+
+// ED2 Solid, Logical and Placement
+  
+	//G4VSolid* ED2Solid = new G4Tubs("ED2Tub",EDrad-EDgap/2,EDrad+EDgap/2,EDheight/2,340*deg,EDang);
+	//G4LogicalVolume* ED2Logical = new G4LogicalVolume(ED2Solid,Vacuum,"ED2Logical");
+	//new G4PVPlacement(RotateED1,G4ThreeVector(-EDrad,0*cm,zED2_EFBend),ED2Logical,"ED2Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+  	//ED2Logical->SetVisAttributes(EDVisAtt);
+
+// Q3 Solid, Logical and Placement
+
+  	G4VSolid* Q3Solid = new G4Tubs("Q3Tub",0*cm,Q3rad,Q3effFL/2,0*deg,360*deg);
+  	G4LogicalVolume* Q3Logical = new G4LogicalVolume(Q3Solid,Vacuum,"Q3Logical");
+  	new G4PVPlacement(Rotate0,G4ThreeVector(0*cm,0*cm,zQ3),Q3Logical,"Q3Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+  	Q3Logical->SetVisAttributes(BendingVisAtt);
+
+// Q4 Solid, Logical and Placement
+  
+  	G4VSolid* Q4Solid = new G4Tubs("Q4Tub",0*cm,Q4rad,Q4effFL/2,0*deg,360*deg);
+  	G4LogicalVolume* Q4Logical = new G4LogicalVolume(Q4Solid,Vacuum,"Q4Logical");
+  	new G4PVPlacement(Rotate0,G4ThreeVector(0*cm,0*cm,zQ4),Q4Logical,"Q4Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+  	Q4Logical->SetVisAttributes(BendingVisAtt);
+
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+// 										Create Fields 											\\
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+	
+	// Q1
+  	Field1 = new BGField1(0*mm,0*mm,247*mm,17.5*mm,SpecWorldLogical,G4ThreeVector(0*mm,0*mm,123.5*mm)); 		//see BGField1.cc for description of input parameters
+	//Field1 = new BGField1(0*mm,0*mm,TargetQ1drift,Q1Q2drift,SpecWorldLogical,G4ThreeVector(0*mm,0*mm,zQ1)); 		//see BGField1.cc for description of input parameters
+	// Q2
+	Field2 = new BGField2(0*mm,404.27*mm,17.5*mm,186.15*mm,SpecWorldLogical,G4ThreeVector(0*mm,0*mm,413.02*mm)); 		//see BGField2.cc for description of input parameters
+	//Field2 = new BGField2(0*mm,zQ1_EFBend,Q1Q2drift,Q2ED1drift,SpecWorldLogical,G4ThreeVector(0*mm,0*mm,zQ2)); 		//see BGField2.cc for description of input parameters
+	// ED1
+	Field3 = new BGField3(0,906.73*mm,186.15*mm,596.4*mm,SpecWorldLogical,G4ThreeVector(0*mm,0*mm,999.805)); 
+	//Field3 = new BGField3(0,zQ2_EFBend,Q2ED1drift,EDMDdrift,SpecWorldLogical,G4ThreeVector(0*mm,0*mm,zED1_EFBstart)); 	//see BGField3.cc for description of input parameters
+	// MD
+	//Field4 = new BGField4(-574.811*mm,3553.8*mm,426*mm,426*mm,SpecWorldLogical,G4ThreeVector(-647.661*mm,0*mm,4296.12*mm)); //see BGField4.cc for description of input parameters
+	//Field4 = new BGField4(-301.537*mm,2802.981*mm,1225*mm,1225*mm,SpecWorldLogical,G4ThreeVector(-647.661*mm,0*mm,3753.95*mm)); //see BGField4.cc for description of input parameters
+	Field4 = new BGField4(-574.811*mm,3553.8*mm,426*mm,426*mm,SpecWorldLogical,G4ThreeVector(-647.661*mm,0*mm,4296.12*mm)); //see BGField4.cc for description of input parameters
+	//429.612*cm;
+	// 3753.95*mm
+	// ED2  	
+	Field5 = new BGField5(-510.614*mm,5214.83*mm,611.3*mm,134.2*mm,SpecWorldLogical,G4ThreeVector(0*mm,0*mm,7566.47*mm)); 	//see BGField5.cc for description of input parameters
+	// Q3  	
+	Field6 = new BGField6(0,7633.57*mm,230.7*mm,30*mm,SpecWorldLogical,G4ThreeVector(0*mm,0*mm,7700.67*mm)); 		//see BGField6.cc for description of input parameters
+	// Q4  	
+	Field7 = new BGField7(0,8193.98*mm,0*mm,209.2*mm,SpecWorldLogical,G4ThreeVector(0*mm,0*mm,8393.98*mm)); 		//see BGField7.cc for description of input parameters
+
+
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+// 										Create Beamline 										\\
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+
+	G4double WallThick = 6.35*mm; // 1/4 inch (arbitrary)
+	G4double PipeRad = 100*mm;
+
+
+	// 4.2 deg Aperture
+	G4double zAperture = 100*mm;
+	G4double ApertureAngle = 4.2*deg;
+	G4double ApertureRadius = zAperture*tan(ApertureAngle);
+	//G4double ApertureRadius = 0.0;
+	G4double ApertureHL = 0.05*mm; // (arbitrarily thin)
+
+	G4VSolid* ApertureSolid = new G4Tubs("Aperture",ApertureRadius,Q1rad,ApertureHL,0*deg,360*deg);
+	G4LogicalVolume* ApertureLogical = new G4LogicalVolume(ApertureSolid,Wall,"ApertureLogical");
+	new G4PVPlacement(Rotate0,G4ThreeVector(0*cm,0*cm,zAperture),ApertureLogical,"AperturePhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+
+	// Q1 to ED1 tank
+
+	// Pipe from target to middle of Q1 and Q2
+	G4double Q1pipeHL = (TargetQ1drift + Q1effFL + Q1Q2drift/2)/2;
+	G4double zQ1pipe = Q1pipeHL;	
+	G4VSolid* Q1pipeSolid = new G4Tubs("Q1pipe",Q1rad,Q1rad+WallThick,Q1pipeHL,0*deg,360*deg);
+	G4LogicalVolume* Q1pipeLogical = new G4LogicalVolume(Q1pipeSolid,Wall,"Q1pipeLogical");
+	new G4PVPlacement(Rotate0,G4ThreeVector(0*cm,0*cm,zQ1pipe),Q1pipeLogical,"Q1pipePhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+  	Q1pipeLogical->SetVisAttributes(WallVisAtt);
+
+	// Cap around the end of Q1 beam pipe
+	G4double zQ1Q2cap = zQ1pipe + Q1pipeHL - WallThick/2;
+	G4VSolid* Q1Q2capSolid = new G4Tubs("Q1Q2cap",Q1rad+WallThick,Q2rad+WallThick,WallThick/2,0*deg,360*deg);
+	G4LogicalVolume* Q1Q2capLogical = new G4LogicalVolume(Q1Q2capSolid,Wall,"Q1Q2calLogical");
+	new G4PVPlacement(Rotate0,G4ThreeVector(0*cm,0*cm,zQ1Q2cap),Q1Q2capLogical,"Q1Q2capPhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+  	Q1Q2capLogical->SetVisAttributes(WallVisAtt);
+
+
+	// Pipe from middle of Q1 and Q2 to ED1
+	G4double Q2pipeHL = (Q1Q2drift/2 + Q2effFL + Q2ED1drift)/2;
+	G4double zQ2pipe = zQ1pipe + Q1pipeHL + Q2pipeHL;
+	G4VSolid* Q2pipeSolid = new G4Tubs("Q2pipe",Q2rad,Q2rad+WallThick,Q2pipeHL,0*deg,360*deg);
+	G4LogicalVolume* Q2pipeLogical = new G4LogicalVolume(Q2pipeSolid,Wall,"Q2pipeLogical");
+	new G4PVPlacement(Rotate0,G4ThreeVector(0*cm,0*cm,zQ2pipe),Q2pipeLogical,"Q2pipePhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+  	Q2pipeLogical->SetVisAttributes(WallVisAtt);
+
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+
+	// ED1 Walls
+
+	// Wall 1: x<0 (down) [EAST] [Cathode]
+	G4VSolid* ED1Wall1Solid = new G4Tubs("ED1Wall1Tub", EDrad-EDgap/2-WallThick, EDrad-EDgap/2, EDheight/2+WallThick, 360*deg, EDang);
+	G4LogicalVolume* ED1Wall1Logical = new G4LogicalVolume(ED1Wall1Solid,Wall,"ED1Wall1Logical", 0,0,0);
+	new G4PVPlacement(RotateED1,G4ThreeVector(-EDrad,0*cm,zED1_EFBstart),ED1Wall1Logical,"ED1Wall1Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	ED1Wall1Logical->SetVisAttributes(WallVisAtt);
+	// Wall 2: x>0 (up)   [WEST] [Anode]
+	G4VSolid* ED1Wall2Solid = new G4Tubs("ED1Wall2Tub", EDrad+EDgap/2 - deltaED1anode, EDrad+EDgap/2+WallThick - deltaED1anode, EDheight/2, 360*deg, EDang);
+	G4LogicalVolume* ED1Wall2Logical = new G4LogicalVolume(ED1Wall2Solid,Wall,"ED1Wall2Logical", 0,0,0);
+	new G4PVPlacement(RotateED1,G4ThreeVector(-EDrad,0*cm,zED1_EFBstart),ED1Wall2Logical,"ED1Wall2Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	ED1Wall2Logical->SetVisAttributes(WallVisAtt);
+
+	// Wall 3: y>0 && y<0ED1cathodeRad
+	G4VSolid* ED1Wall3Solid = new G4Tubs("ED1Wall3Tub", EDrad-EDgap/2, EDrad+EDgap/2, WallThick/2.0, 360*deg, EDang);
+	G4LogicalVolume* ED1Wall3Logical = new G4LogicalVolume(ED1Wall3Solid,Wall,"ED1Wall3Logical", 0,0,0);
+	// Place on top
+	new G4PVPlacement(RotateED1, G4ThreeVector(-EDrad, EDheight/2.+WallThick/2., zED1_EFBstart), ED1Wall3Logical,"ED1Wall3Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	ED1Wall3Logical->SetVisAttributes(WallVisAtt);	
+	// Place below
+	new G4PVPlacement(RotateED1,G4ThreeVector(-EDrad, -(EDheight/2+WallThick/2.0), zED1_EFBstart), ED1Wall3Logical,"ED1Wall4Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+/*
+	// As-built ED1
+	// Wall 1: x<0 (down) [EAST] [Cathode]
+	G4VSolid* ED1Wall1Solid = new G4Tubs("ED1Wall1Tub", ED1cathodeRad-WallThick, ED1cathodeRad, EDheight/2+WallThick, 360*deg, EDang);
+	G4LogicalVolume* ED1Wall1Logical = new G4LogicalVolume(ED1Wall1Solid,Wall,"ED1Wall1Logical", 0,0,0);
+	new G4PVPlacement(RotateED1,G4ThreeVector(-xED1cathode,0*cm,zED1cathode),ED1Wall1Logical,"ED1Wall1Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	ED1Wall1Logical->SetVisAttributes(WallVisAtt);
+
+	// Wall 2: x>0 (up)   [WEST] [Anode]
+	G4VSolid* ED1Wall2Solid = new G4Tubs("ED1Wall2Tub", ED1anodeRad, ED1anodeRad+WallThick, EDheight/2+WallThick, 360*deg, EDang);
+	G4LogicalVolume* ED1Wall2Logical = new G4LogicalVolume(ED1Wall2Solid,Wall,"ED1Wall2Logical", 0,0,0);
+	new G4PVPlacement(RotateED1,G4ThreeVector(-xED1anode,0*cm,zED1anode),ED1Wall2Logical,"ED1Wall2Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	ED1Wall2Logical->SetVisAttributes(WallVisAtt);
+*/
+/*
+	// ED1 Tank
+	G4double EDtankrad = 1000*mm;
+	G4double EDtankheight = 1000*mm;
+	G4double zED1tank = 1961.28*mm;
+	G4double ED1entranceflangeHL = 50*mm;
+	G4double ED1exitflangeHL = 50*mm;
+
+	G4VSolid* ED1TankWall1 = new G4Tubs("ED1TankWallTub", 0, EDtankrad+WallThick,WallThick + EDtankheight/2, 0*deg, 360*deg);	// Solid Tank Tube
+	G4VSolid* ED1TankVac = new G4Tubs("ED1TankVac", 0, EDtankrad,EDtankheight/2, 0*deg, 360*deg);					// Solid Vaccum Region
+	G4VSolid* ED1entranceflange1 = new G4Tubs("ED1entranceflange1",Q2rad,Q2rad+WallThick,ED1entranceflangeHL,0*deg,360*deg);	// Solid Entrance Pipe
+	G4VSolid* ED1exitflange1 = new G4Tubs("ED1exitflange1",137.5*mm,137.5*mm+WallThick,ED1exitflangeHL,0*deg,360*deg);	// Exit Pipe
+	G4VSolid* ED1exitflange2 = new G4Tubs("ED1exitflange2",0*mm,137.5*mm,ED1exitflangeHL,0*deg,360*deg);	// Exit Pipe Hole
+
+	G4UnionSolid* ED1TankWall2 = new G4UnionSolid("ED1TankWall2",ED1TankWall1,ED1entranceflange1,RotateTest,G4ThreeVector(0,-EDtankrad,0)); // Solid Tank + Solid Pipe
+	G4UnionSolid* ED1TankWall3 = new G4UnionSolid("ED1TankWall3",ED1TankWall2,ED1exitflange1,RotateTest,G4ThreeVector(0,EDtankrad,0)); // Solid Tank + Solid Pipe
+
+	
+	G4SubtractionSolid* ED1TankWall4 = new G4SubtractionSolid("ED1TankWall3",ED1TankWall3,ED1TankVac); // Excavate tank vacuum
+	G4SubtractionSolid* ED1TankWall5 = new G4SubtractionSolid("ED1TankWall5",ED1TankWall4,Q2Solid,RotateTest,G4ThreeVector(0,-EDtankrad,0)); // Cut hole for entrance
+	G4SubtractionSolid* ED1TankWall6 = new G4SubtractionSolid("ED1TankWall6",ED1TankWall5,ED1exitflange2,RotateTest2,G4ThreeVector(0,EDtankrad,0)); // Cut hole for entrance	
+
+	G4LogicalVolume* ED1TankLogical = new G4LogicalVolume(ED1TankWall6,Wall,"ED1TankLogical", 0,0,0);
+	new G4PVPlacement(RotateED1,G4ThreeVector(0*cm,0*cm,zED1tank),ED1TankLogical,"ED1TankPhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+
+*/
+	//G4SubtractionSolid* ED1TankSolid1 = new G4SubtractionSolid("ED1TankSolid1",ED1TankWall,Q2Solid,RotateTest,G4ThreeVector(0,-EDtankrad,0));
+	
+	//G4VSolid* ED1TankVac = new G4Tubs("ED1TankVacTub", 0, EDtankrad, EDtankheight/2, 0*deg, 360*deg);
+	//G4SubtractionSolid* ED1TankSolid2 = new G4SubtractionSolid("ED1TankSolid2",ED1TankSolid1,ED1TankVac);
+	//G4LogicalVolume* ED1TankLogical = new G4LogicalVolume(ED1TankSolid2,Wall,"ED1TankLogical", 0,0,0);
+	//new G4PVPlacement(RotateED1,G4ThreeVector(0*cm,0*cm,zED1tank),ED1TankLogical,"ED1TankPhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+	//ED1TankLogical->SetVisAttributes(WallVisAtt);
+
+
+
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+
+	// MD Walls
+	// Inner Radius Wall
+	G4VSolid* MDWall1Solid = new G4Tubs("MDWall1Tub",MDrad-MDwidth/2-WallThick,MDrad-MDwidth/2,MDgap/2+WallThick,160.45*deg,MDang-0.9*deg); // subtract a small amount so as not to overlap with flange
+	G4LogicalVolume* MDWall1Logical = new G4LogicalVolume(MDWall1Solid,Wall,"MDWall1Logical", 0,0,0);
+	new G4PVPlacement(RotateED1,G4ThreeVector(xMD,0*cm,zMD),MDWall1Logical,"MDWall1Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	MDWall1Logical->SetVisAttributes(WallVisAtt);
+
+   	G4VSolid* MDWall2Solid = new G4Tubs("MDWall2Tub",MDrad+MDwidth/2,MDrad+MDwidth/2+WallThick,MDgap/2+WallThick,160.*deg,MDang);
+	G4LogicalVolume* MDWall2Logical = new G4LogicalVolume(MDWall2Solid,Wall,"MDWall2Logical", 0,0,0);
+	new G4PVPlacement(RotateED1,G4ThreeVector(xMD,0*cm,zMD),MDWall2Logical,"MDWall2Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	MDWall2Logical->SetVisAttributes(WallVisAtt);
+
+	G4VSolid* MDWall3Solid = new G4Tubs("MDWall3Tub",MDrad-MDwidth/2,MDrad+MDwidth/2,WallThick/2,160*deg,MDang);
+	G4LogicalVolume* MDWall3Logical = new G4LogicalVolume(MDWall3Solid,Wall,"MDWall3Logical", 0,0,0);
+	new G4PVPlacement(RotateED1,G4ThreeVector(xMD,MDgap/2+WallThick/2.0,zMD),MDWall3Logical,"MDWall3Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	MDWall3Logical->SetVisAttributes(WallVisAtt);
+
+	G4VSolid* MDWall4Solid = new G4Tubs("MDWall4Tub",MDrad-MDwidth/2,MDrad+MDwidth/2,WallThick/2,160*deg,MDang);
+	G4LogicalVolume* MDWall4Logical = new G4LogicalVolume(MDWall4Solid,Wall,"MDWall4Logical", 0,0,0);
+	new G4PVPlacement(RotateED1,G4ThreeVector(xMD,-(MDgap/2+WallThick/2.0),zMD),MDWall4Logical,"MDWall4Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	MDWall4Logical->SetVisAttributes(WallVisAtt);
+
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+
+	// MD entrance and exit flange caps
+	G4ThreeVector MDflange1pos = G4ThreeVector(-575.9*mm,0*mm,3556.8*mm);
+	G4ThreeVector MDflange2pos = G4ThreeVector(-575.9*mm,0*mm,5035.35*mm);
+	G4double MDaptWidth = 205*mm; // 205*mm
+	G4double MDaptHeight = 92*mm;
+
+	G4VSolid* MDflange = new G4Tubs("MDflangeTub", 0*cm, PipeRad+10*cm, WallThick/2, 0*deg, 360*deg); // Solid flange
+	G4VSolid* MDaperture = new G4Box("MDaperture", MDaptWidth/2, MDaptHeight/2, WallThick); // Solid flange
+	G4SubtractionSolid* MDflangeSolid = new G4SubtractionSolid("MDflangeTub2",MDflange,MDaperture);
+	G4LogicalVolume* MDflange1Logical = new G4LogicalVolume(MDflangeSolid,Wall,"MDflangeLogical", 0,0,0);
+	G4LogicalVolume* MDflange2Logical = new G4LogicalVolume(MDflangeSolid,Wall,"MDflangeLogical", 0,0,0);
+	//MDflange1Logical->SetVisAttributes(WallVisAtt);
+	//MDflange2Logical->SetVisAttributes(WallVisAtt);
+	new G4PVPlacement(Rotate1,MDflange1pos,MDflange1Logical,"MDflangePhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+	new G4PVPlacement(Rotate2,MDflange2pos,MDflange2Logical,"MDflangePhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+
+	// ED1 to MD beam pipe and slit box
+	//G4double ED1toMDpipeHL = (EDMDdrift - (zMD_EFBstart - MDflange1pos[2])/cos(EDang))/2;
+	G4double ED1toMDpipeHL = (EDMDdrift - (zMD_EFBstart - MDflange1pos[2])/cos(EDang))/2 - 5*mm;
+	//G4double MDSlitCrossHL = EDMDdrift/2 - (xMD_EFBstart - MDflange2pos[0]);
+	
+	G4double xPipeED1toMD = xED1_EFBend - ED1toMDpipeHL*sin(20*deg);
+	G4double zPipeED1toMD = zED1_EFBend + ED1toMDpipeHL*cos(20*deg);
+
+
+	G4VSolid* ED1toMDpipeWallSolid = new G4Tubs("ED1toMDTubWall", PipeRad+2*cm, PipeRad+WallThick+2*cm, ED1toMDpipeHL, 0*deg, 360*deg); // Solid Pipe across dift length between ED1 and MD
+	G4LogicalVolume* ED1toMDpipeWallLogical = new G4LogicalVolume(ED1toMDpipeWallSolid,Wall,"ED1toMDpipeWallLogical", 0,0,0);
+	new G4PVPlacement(Rotate1,G4ThreeVector(xPipeED1toMD,0*cm,zPipeED1toMD),ED1toMDpipeWallLogical,"ED1toMDpipePhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+	//ED1toMDpipeWallLogical->SetVisAttributes(WallVisAtt);
+
+	//G4VSolid* MDSlitCross = new G4Tubs("MDSlitCross", PipeRad, PipeRad+WallThick, MDSlitCrossHL, 0*deg, 360*deg); // Solid Pipe across dift length between ED1 and MD
+	//G4UnionSolid* ED1toMDpipeUnionSolid = new G4UnionSolid("ED1toMDpipeUnionSolid",ED1toMDpipeWallSolid,MDSlitCross); // Solid Tank + Solid Pipe
+
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+
+	// MD to ED2 beam pipe and slit box
+	//G4double MDtoED2pipeHL = (EDMDdrift - (zMD_EFBend - MDflange2pos[2])/cos(EDang))/2;
+	G4double MDtoED2pipeHL = ((zED2_EFBstart - MDflange2pos[2])/cos(EDang))/2 - 5*mm;
+
+	G4double xPipeMDtoED2 = xED1_EFBend - MDtoED2pipeHL*sin(20*deg);
+	G4double zPipeMDtoED2 = zED2_EFBstart - MDtoED2pipeHL*cos(20*deg);
+
+	G4VSolid* MDtoED2pipeWallSolid = new G4Tubs("MDtoED2TubWall", PipeRad+2*cm, PipeRad+WallThick+2*cm, MDtoED2pipeHL, 0*deg, 360*deg); // Solid Pipe across dift length between ED1 and MD
+	G4LogicalVolume* MDtoED2pipeWallLogical = new G4LogicalVolume(MDtoED2pipeWallSolid,Wall,"MDtoED2pipeWallLogical", 0,0,0);
+	new G4PVPlacement(Rotate2,G4ThreeVector(xPipeMDtoED2,0*cm,zPipeMDtoED2),MDtoED2pipeWallLogical,"MDtoED2pipePhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+	//ED1toMDpipeWallLogical->SetVisAttributes(WallVisAtt);
+
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+
+	// ED2 Walls
+
+	// Cathode
+	G4VSolid* ED2Wall1Solid = new G4Tubs("ED2Wall1Tub", EDrad-EDgap/2-WallThick + deltaED2cathode, EDrad-EDgap/2 + deltaED2cathode, EDheight/2, 340*deg, EDang);
+	G4LogicalVolume* ED2Wall1Logical = new G4LogicalVolume(ED2Wall1Solid,Wall,"ED2Wall1Logical", 0,0,0);
+	new G4PVPlacement(RotateED1,G4ThreeVector(-EDrad,0*cm,zED2_EFBend),ED2Wall1Logical,"ED2Wall1Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	ED2Wall1Logical->SetVisAttributes(WallVisAtt);
+	// Anode
+	G4VSolid* ED2Wall2Solid = new G4Tubs("ED2Wall2Tub", EDrad+EDgap/2, EDrad+EDgap/2+WallThick, EDheight/2+WallThick, 340*deg, EDang);
+	G4LogicalVolume* ED2Wall2Logical = new G4LogicalVolume(ED2Wall2Solid,Wall,"ED2Wall2Logical", 0,0,0);
+	new G4PVPlacement(RotateED1,G4ThreeVector(-EDrad,0*cm,zED2_EFBend),ED2Wall2Logical,"ED2Wall2Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	ED2Wall2Logical->SetVisAttributes(WallVisAtt);
+
+	// Place on top
+	G4VSolid* ED2Wall3Solid = new G4Tubs("ED2Wall3Tub", EDrad-EDgap/2, EDrad+EDgap/2, WallThick/2.0, 340*deg, EDang);
+	G4LogicalVolume* ED2Wall3Logical = new G4LogicalVolume(ED2Wall3Solid,Wall,"ED2Wall3Logical", 0,0,0);
+	new G4PVPlacement(RotateED1, G4ThreeVector(-EDrad, EDheight/2.+WallThick/2., zED2_EFBend), ED2Wall3Logical,"ED2Wall3Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	ED2Wall3Logical->SetVisAttributes(WallVisAtt);
+	// Place below
+	new G4PVPlacement(RotateED1,G4ThreeVector(-EDrad, -(EDheight/2+WallThick/2.0), zED2_EFBend), ED2Wall3Logical,"ED2Wall4Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+
+	// As-built
+/*
+	// Cathode
+	G4VSolid* ED2Wall1Solid = new G4Tubs("ED2Wall1Tub", ED2cathodeRad-WallThick, ED2cathodeRad, EDheight/2+WallThick, 340*deg, EDang);
+	G4LogicalVolume* ED2Wall1Logical = new G4LogicalVolume(ED2Wall1Solid,Wall,"ED2Wall1Logical", 0,0,0);
+	new G4PVPlacement(RotateED1,G4ThreeVector(-xED2cathode,0*cm,zED2cathode),ED2Wall1Logical,"ED2Wall1Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	ED2Wall1Logical->SetVisAttributes(WallVisAtt);
+	// Anode
+	G4VSolid* ED2Wall2Solid = new G4Tubs("ED2Wall2Tub", ED2anodeRad, ED2anodeRad+WallThick, EDheight/2+WallThick, 340*deg, EDang);
+	G4LogicalVolume* ED2Wall2Logical = new G4LogicalVolume(ED2Wall2Solid,Wall,"ED2Wall2Logical", 0,0,0);
+	new G4PVPlacement(RotateED1,G4ThreeVector(-xED2anode,0*cm,zED2anode),ED2Wall2Logical,"ED2Wall2Physical",SpecWorldLogical,0,0,fCheckOverlaps);
+	ED2Wall2Logical->SetVisAttributes(WallVisAtt);
+*/
+
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+
+	// Q3 to Q4 Beam Pipe
+
+	// Pipe from ED2 to middle of Q3 and Q4
+	G4double Q3pipeHL = (ED2Q3drift + Q3effFL + Q3Q4drift/2)/2;
+	G4double zQ3pipe = zED2_EFBend + Q3pipeHL;	
+	G4VSolid* Q3pipeSolid = new G4Tubs("Q3pipe",Q3rad,Q3rad+WallThick,Q3pipeHL,0*deg,360*deg);
+	G4LogicalVolume* Q3pipeLogical = new G4LogicalVolume(Q3pipeSolid,Wall,"Q3pipeLogical");
+	new G4PVPlacement(Rotate0,G4ThreeVector(0*cm,0*cm,zQ3pipe),Q3pipeLogical,"Q3pipePhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+  	Q3pipeLogical->SetVisAttributes(WallVisAtt);
+
+	// Cap around the end of Q1 beam pipe
+	G4double zQ3Q4cap = zQ3pipe + Q3pipeHL - WallThick/2;
+	G4VSolid* Q3Q4capSolid = new G4Tubs("Q3Q4cap",Q3rad+WallThick,Q4rad+WallThick,WallThick/2,0*deg,360*deg);
+	G4LogicalVolume* Q3Q4capLogical = new G4LogicalVolume(Q3Q4capSolid,Wall,"Q3Q4calLogical");
+	new G4PVPlacement(Rotate0,G4ThreeVector(0*cm,0*cm,zQ3Q4cap),Q3Q4capLogical,"Q3Q4capPhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+  	Q3Q4capLogical->SetVisAttributes(WallVisAtt);
+
+	// Pipe from middle of Q3 and Q4 to Focal Plane
+	G4double Q4pipeHL = (Q3Q4drift/2 + Q4effFL + Q4FPdrift - 40*mm)/2;
+	G4double zQ4pipe = zQ3pipe + Q3pipeHL + Q4pipeHL;
+	G4VSolid* Q4pipeSolid = new G4Tubs("Q4pipe",Q4rad,Q4rad+WallThick,Q4pipeHL,0*deg,360*deg);
+	G4LogicalVolume* Q4pipeLogical = new G4LogicalVolume(Q4pipeSolid,Wall,"Q4pipeLogical");
+	new G4PVPlacement(Rotate0,G4ThreeVector(0*cm,0*cm,zQ4pipe),Q4pipeLogical,"Q4pipePhysical",SpecWorldLogical,0,0,fCheckOverlaps);
+  	Q4pipeLogical->SetVisAttributes(WallVisAtt);
+	
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+// 										Field Debugger	 										\\
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+
+    //Calculate E and B fields and write it to file
+    	G4bool calcEFL=TRUE; //if false the E and B fields will not be written to file
+    	if(calcEFL){
+      		fieldFileName = UserDir;
+      		fieldFileName.append("/Results/fringefields/effFieldOpticalAxis.dat"); //Used in EMMAFieldDebugger.cc
+      		std::ofstream outfile;
+      		outfile.open (fieldFileName); //open and close to erase contents of file
+      		outfile.close();
+
+      		//0=Q1, 1=Q2, 2=ED1, 3=MD, 4=ED2, 5=Q3, 6=Q4, 7=custom
+      		//to calculate fields inside all elements
+      		//for(G4int i=7;i<10;i++){
+        		//EMFieldDebugger* EMdebug = new EMFieldDebugger(i); //writes field strengths at different positions to file
+       		//}
+      		//to calculate field inside one element
+      		EMFieldDebugger* EMdebug = new EMFieldDebugger(1);
+      		//exit(0); //comment if you want to program to terminate after writing the fields to file
+    	}
+
+//<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\\
+
+}
+
+// Destructor
+SpectrometerConstructionV2::~SpectrometerConstructionV2()
+{
+}
+
+// Print Field Strengths
+void SpectrometerConstructionV2::PrintFieldStrength() // for debugging
+{
+  	// print to monitor
+  	G4cout << G4endl;
+  	G4cout << "Field strengths: " << G4endl;
+  	G4cout << "Q1: " << Field1->GetFieldStrength() << " Tm" << G4endl;
+ 	G4cout << "Q2: " << Field2->GetFieldStrength() << " Tm" << G4endl;
+  	G4cout << "ED1: " << Field3->GetFieldStrength() << "kV/cm" << G4endl;
+  	G4cout << "MD: " << Field4->GetFieldStrength() << " Tm" << G4endl;
+  	G4cout << "ED2: " << Field5->GetFieldStrength() << "kV/cm" << G4endl;
+  	G4cout << "Q3: " << Field6->GetFieldStrength() << " Tm" << G4endl;
+  	G4cout << "Q4: " << Field7->GetFieldStrength() << " Tm" << G4endl;
+  	G4cout << G4endl;
+
+  	// print same info to file
+  	std::ofstream outfile;
+  	G4String fname = UserDir;
+  	fname.append("/Results/fieldStrengths.dat");
+  	outfile.open (fname);
+  	outfile << "Q1: " << Field1->GetFieldStrength() << " Tm" << G4endl;
+  	outfile << "Q2: " << Field2->GetFieldStrength() << " Tm" << G4endl;
+  	outfile << "ED1: " << Field3->GetFieldStrength() << "kV/cm" << G4endl;
+  	outfile << "MD: " << Field4->GetFieldStrength() << " Tm" << G4endl;
+  	outfile << "ED2: " << Field5->GetFieldStrength() << "kV/cm" << G4endl;
+  	outfile << "Q3: " << Field6->GetFieldStrength() << " Tm" << G4endl;
+  	outfile << "Q4: " << Field7->GetFieldStrength() << " Tm" << G4endl;
+  	outfile.close();
+}
+
+// Scale Field Strengths
+void SpectrometerConstructionV2::ScaleFieldStrength( G4double msf, G4double esf )
+{
+  	Field1->ScaleFieldStrength( msf );
+  	Field2->ScaleFieldStrength( msf );
+  	Field3->ScaleFieldStrength( esf );
+  	Field4->ScaleFieldStrength( msf );
+  	Field5->ScaleFieldStrength( esf );
+  	Field6->ScaleFieldStrength( msf );
+  	Field7->ScaleFieldStrength( msf );
+}
+
+// Read in user specifications for slits
+void SpectrometerConstructionV2::ReadUserInput()
+{
+  	double val;
+  	string text, line;
+  	ifstream inputfil;
+  	G4String filename = UserDir;
+  	filename.append("/UserInput/slits.dat");
+  	inputfil.open ( filename, ios::in );
+  	if ( inputfil.is_open() ) {
+    		int n=0;
+    		insert_hSlits1=true; // SLITS 1
+		insert_hSlits2=true; // SLITS 2
+		insert_rSlits3=true; // SLITS 3 right
+		insert_lSlits4=true; // SLITS 4 left
+    		while ( inputfil.good() ) {
+      			inputfil >> text;
+      			if (text=="#") { // skip comments
+	    			getline (inputfil,line);
+      			}
+      			else {
+    				n = n+1;
+  	    			if (text=="OUT") { //slits out
+    	    				val=200*cm; //very large aperture width
+    	    				if(n==3||n==4)val=100*cm;
+	    			}
+	    			else if (text!="OUT" ) { //slits in with specified width
+	      				val=atof(text.c_str())*mm;
+	    			}
+        			if (n==1) hAperture1 = val; //distance between the two slits
+        			if (n==2) hAperture2 = val;
+        			if (n==3) rAperture3 = val; //since right and left slit distances are from z=0 axis
+        			if (n==4) lAperture4 = val;
+        			inputfil.ignore(100,'\n');
+      			}
+    		}
+    		inputfil.close();
+  	}
+  	else cout << "Unable to open " << "UserInput/slits.dat" << endl;
+}
+
+// Build Slit Pairs
+void SpectrometerConstructionV2::buildSlits( G4LogicalVolume* SpecWorldLogical,
+					   G4String nameSolid, G4String nameLogical, G4String namePhys,
+					   G4double slitsThick, G4double angle, G4ThreeVector pos,
+					   G4bool insert_hSlits, G4double hAper)
+{
+  	G4int nElem;
+  	G4double z, weightRatio;
+  	G4String name, symbol;
+  	G4VSolid *aSlit, *anotherSlit;
+  	G4ThreeVector displace;
+
+  	// rotation matrices
+  	G4RotationMatrix* Rotate0 = new G4RotationMatrix();
+  	Rotate0->rotateY(0*deg);
+  	G4RotationMatrix* rotMat = new G4RotationMatrix();
+  	rotMat->rotateY(angle);
+
+  	// Aluminum
+  	G4double a = 26.98*g/mole;
+  	G4Element* elAl = new G4Element(name="Aluminum", symbol="Al", z=13., a);
+  	G4double density = 2.70*g/cm3;
+  	G4Material* Aluminum = new G4Material(name="Aluminum", density, nElem=1);
+  	Aluminum->AddElement(elAl, weightRatio=1.0);
+
+
+  	// Horizontal aperture
+  	G4double hXHL = 20*cm;  // just some large number
+  	G4double hYHL = 20*cm;  // ...
+  	aSlit = new G4Box("aSlit",hXHL,hYHL,slitsThick);
+  	anotherSlit = new G4Box("anotherSlit",hXHL,hYHL,slitsThick);
+  	displace[0] = 2*hXHL + hAper;
+  	displace[1] = 0;
+  	displace[2] = 0;
+  	name = "h";
+  	name.append(nameSolid);
+  	G4UnionSolid* hSlitsSolid = new G4UnionSolid(name, aSlit, anotherSlit, Rotate0, displace);
+  	name = "h";
+  	name.append(nameLogical);
+  	G4LogicalVolume* hSlitsLogical= new G4LogicalVolume(hSlitsSolid, Aluminum, name, 0,0,0);
+  	name = "h";
+  	name.append(namePhys);
+  	if (insert_hSlits && hAper>=0.) {
+    		G4ThreeVector hpos;
+    		G4double dx = -(hXHL+hAper/2)*cos(angle)-slitsThick*sin(angle);
+    		G4double dz = -(hXHL+hAper/2)*sin(angle)+slitsThick*cos(angle);
+    		hpos[0] = pos[0] + dx;
+    		hpos[1] = pos[1];
+    		hpos[2] = pos[2] + dz;
+    		new G4PVPlacement( rotMat, hpos, hSlitsLogical, name, SpecWorldLogical,0,0,fCheckOverlaps);
+		hSlitsLogical->SetVisAttributes(SlitsVisAtt);
+  	}
+
+}
+
+// Build single slit
+void SpectrometerConstructionV2::buildSlitSingle( G4LogicalVolume* SpecWorldLogical,
+		   G4String nameSolid, G4String nameLogical, G4String namePhys,
+		   G4double slitsThick, G4ThreeVector pos,
+		   G4bool insert_rSlits, G4double rAper,G4bool insert_lSlits, G4double lAper)
+{
+  	G4int nElem;
+  	G4double z, weightRatio;
+  	G4String name, symbol;
+  	G4ThreeVector displace;
+
+  	// rotation matrices
+  	G4RotationMatrix* Rotate0 = new G4RotationMatrix();
+  	Rotate0->rotateY(0*deg);
+
+  	// Aluminum
+  	G4double a = 26.98*g/mole;
+  	G4Element* elAl = new G4Element(name="Aluminum", symbol="Al", z=13., a);
+  	G4double density = 2.70*g/cm3;
+  	G4Material* Aluminum = new G4Material(name="Aluminum", density, nElem=1);
+  	Aluminum->AddElement(elAl, weightRatio=1.0);
+
+  	// Right slit
+  	G4double hXHL = 20*cm;  // just some large number
+  	G4double hYHL = 20*cm;  // ...
+  	name = "r";
+  	name.append(nameSolid);
+  	G4VSolid* rSlitsSolid = new G4Box(name,hXHL,hYHL,slitsThick);
+  	name = "r";
+  	name.append(nameLogical);
+  	G4LogicalVolume* rSlitsLogical= new G4LogicalVolume(rSlitsSolid, Aluminum, name, 0,0,0);
+  	name = "r";
+  	name.append(namePhys);
+  	if (insert_rSlits && rAper>=0.) {
+    		G4ThreeVector rpos;
+    		G4double dx = -(hXHL+rAper);
+    		G4double dz = slitsThick;
+    		rpos[0] = pos[0] + dx;
+    		rpos[1] = pos[1];
+    		rpos[2] = pos[2] + dz;
+    		new G4PVPlacement( Rotate0, rpos, rSlitsLogical, name, SpecWorldLogical,0,0,fCheckOverlaps);
+		rSlitsLogical->SetVisAttributes(SlitsVisAtt);
+  	}
+
+  	// Left slit
+  	name = "l";
+  	name.append(nameSolid);
+  	G4VSolid* lSlitsSolid = new G4Box(name,hXHL,hYHL,slitsThick);
+  	name = "l";
+  	name.append(nameLogical);
+  	G4LogicalVolume* lSlitsLogical= new G4LogicalVolume(lSlitsSolid, Aluminum, name, 0,0,0);
+  	name = "l";
+  	name.append(namePhys);
+  	if (insert_lSlits && lAper>=0.) {
+    		G4ThreeVector lpos;
+    		G4double dx = hXHL+lAper;
+    		G4double dz = slitsThick;
+    		lpos[0] = pos[0] + dx;
+    		lpos[1] = pos[1];
+    		lpos[2] = pos[2] + dz;
+    		new G4PVPlacement( Rotate0, lpos, lSlitsLogical, name, SpecWorldLogical,0,0,fCheckOverlaps);
+		lSlitsLogical->SetVisAttributes(SlitsVisAtt);
+  	}
+
+}

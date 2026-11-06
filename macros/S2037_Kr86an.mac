@@ -1,0 +1,67 @@
+# Macro for EMMA GEANT4 simulation
+
+# Prepare beam
+#---------------------------------------------------------------
+/mydet/beamZ 36	
+/mydet/beamA 86
+/mydet/beamCharge 19
+/mydet/energy 213.1 MeV
+/mydet/sigmaEnergy 0.01         # beam-energy resolution (sigma) in percent of beam energy
+/mydet/Angle 0.0 deg   	  	# beam angle sampled uniformly between 0 and theta=sigmaAngle
+/mydet/beamSpotDiameter 1.0 mm	# nominal: 1.0
+/mydet/transEmittance 0.2 mm	# nominal: 0.2
+#---------------------------------------------------------------
+
+# Add nuclear-reaction process: 
+# (Z1,A1)+(Z2,A2)->(Z3,A3)+(Z4,A4)
+#-----------------------------------------
+/twoBodyReaction/Z1 36         
+/twoBodyReaction/A1 86         
+/twoBodyReaction/Z2 2        
+/twoBodyReaction/A2 4         
+/twoBodyReaction/Z3 38         
+/twoBodyReaction/A3 89         
+/twoBodyReaction/Z4 0        
+/twoBodyReaction/A4 1         
+/twoBodyReaction/qmin 0.0   # minimum scattering angle in C.M. (deg)         
+/twoBodyReaction/qmax 180.0   # maximum ...	   
+/twoBodyReaction/Charge3 21   # charge state of fragment 3
+/twoBodyReaction/ExcitationEnergy3 5.54    
+#-----------------------------------------
+
+
+
+# Specify central trajectory
+#----------------------------
+/mydet/centralZ 38
+/mydet/centralA 89
+/mydet/centralQ 21
+/mydet/centralE 79
+/mydet/updategeo           # necessary for changes to take effect
+#----------------------------
+
+
+
+# Amount of output info
+#-----------------------
+/run/verbose      0
+/event/verbose    0
+/tracking/verbose 0
+#-----------------------
+
+
+# Run simulation
+#-----------------------
+/mydet/nEvents 10000     
+/mydet/doPrepare
+/mydet/doBeam
+
+#/run/verbose      1
+#/event/verbose    1
+#/tracking/verbose 1
+
+/mydet/doReaction
+#-----------------------
+
+
+#-----------------------------------------
